@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import API_BASE_URL from "./API";
 import toast, { Toaster } from "react-hot-toast";
-import { FiLogOut, FiUserPlus, FiSettings, FiDownload, FiArrowLeft, FiCheck, FiX } from "react-icons/fi";
+import { FiLogOut, FiUserPlus, FiSettings, FiDownload, FiArrowLeft, FiCheck, FiX, FiVideo, FiVideoOff } from "react-icons/fi";
 import Webcam from "react-webcam";
 import { useFaceDetection } from "react-use-face-detection";
 import { FaceDetection } from "@mediapipe/face_detection";
@@ -19,9 +19,15 @@ function dataURItoBlob(dataURI) {
   return new Blob([ab], { type: mimeString });
 }
 
-function MasterComponent() {
-  const [showImg, setShowImg] = useState(false);
-
+function FaceDetectionScanner({
+  isRegistering,
+  isAdmin,
+  loginData,
+  isProcessing,
+  setIsProcessing,
+  setLoginData,
+  setScreenshotRef
+}) {
   const { webcamRef, boundingBox, isLoading, detected, facesDetected } = useFaceDetection({
     faceDetectionOptions: {
       model: 'short',
@@ -37,27 +43,63 @@ function MasterComponent() {
       }),
   });
 
-  const [isRegistering, setIsRegistering] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [value, setValue] = useState("");
-  const [lastFrame, setLastFrame] = useState(null);
-
-  // States for automated log flow
   const [countdown, setCountdown] = useState(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [loginData, setLoginData] = useState(null);
-  const [currentTime, setCurrentTime] = useState(new Date());
 
-  // Clock effect
+  // Sync webcam ref to parent for one-off captures
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+    setScreenshotRef(webcamRef);
+    return () => setScreenshotRef(null);
+  }, [webcamRef, setScreenshotRef]);
 
-  // Timer for auto-login with buffer
+  // Explicitly close camera tracks on unmount
+  useEffect(() => {
+    return () => {
+      if (webcamRef.current && webcamRef.current.video && webcamRef.current.video.srcObject) {
+        const stream = webcamRef.current.video.srcObject;
+        stream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [webcamRef]);
+
+  function send_img_login() {
+    if (webcamRef.current) {
+      const imageSrc = webcamRef.current.getScreenshot();
+      if (!imageSrc) return;
+
+      const blob = dataURItoBlob(imageSrc);
+      const apiUrl = API_BASE_URL + "/login";
+      const file = new File([blob], "webcam-frame.png", { type: "image/png" });
+      const formData = new FormData();
+      formData.append("file", file);
+
+      axios
+        .post(apiUrl, formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        })
+        .then((response) => {
+          if (response.data.match_status === true) {
+            setLoginData({
+              username: response.data.user,
+              imageSrc: imageSrc,
+              timestamp: new Date()
+            });
+          } else {
+            console.log("Unknown user detected and ignored.");
+          }
+        })
+        .catch((error) => {
+          console.error("Error sending image to API:", error);
+          if (error.response && error.response.data && error.response.data.error) {
+            toast.error(error.response.data.error);
+          }
+        });
+    }
+  }
+
   useEffect(() => {
     let timerId;
-
     if (isRegistering || isAdmin || loginData !== null) {
       setCountdown(null);
       return;
@@ -71,15 +113,12 @@ function MasterComponent() {
           setCountdown(countdown - 1);
         }, 1000);
       } else if (countdown === 0) {
-        // Trigger login sequence
         setIsProcessing(true);
         setCountdown(null);
         send_img_login();
-
-        // Wait 5 seconds before attempting another login detection loop
         setTimeout(() => {
           setIsProcessing(false);
-          setLoginData(null); // Clear the Identity Card after 5s
+          setLoginData(null);
         }, 5000);
       }
     } else {
@@ -87,12 +126,83 @@ function MasterComponent() {
         setCountdown(null);
       }
     }
-
     return () => {
       if (timerId) clearTimeout(timerId);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detected, facesDetected, countdown, isRegistering, isAdmin, isProcessing, loginData]);
+
+  return (
+    <div style={{ position: 'relative', display: 'inline-block', width: '100%', maxWidth: '600px' }}>
+      <Webcam
+        ref={webcamRef}
+        audio={false}
+        videoConstraints={{
+          facingMode: "user"
+        }}
+        screenshotFormat="image/png"
+        className="img"
+        style={{ display: "block", width: "100%", height: "auto", borderRadius: '8px' }}
+      />
+      {boundingBox.map((box, index) => (
+        <div
+          key={index}
+          style={{
+            border: '3px solid ' + (countdown !== null && countdown > 0 ? '#3b82f6' : '#10b981'),
+            position: 'absolute',
+            top: `${box.yCenter * 115}%`,
+            left: `${box.xCenter * 125}%`,
+            width: `${box.width * 145}%`,
+            height: `${box.height * 145}%`,
+            transform: 'translate(-50%, -50%)',
+            zIndex: 2,
+            pointerEvents: 'none',
+            borderRadius: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'border-color 0.3s ease'
+          }}
+        >
+          {countdown !== null && countdown > 0 && (
+            <div className="face-countdown">
+              {countdown}
+            </div>
+          )}
+        </div>
+      ))}
+      {isLoading && (
+        <div style={{ position: 'absolute', top: 10, left: 10, background: 'rgba(0,0,0,0.5)', padding: '5px', borderRadius: '5px', pointerEvents: 'none', zIndex: 3, color: 'white' }}>
+          Loading Face Model...
+        </div>
+      )}
+      {countdown !== null && countdown > 0 && !loginData && (
+        <div className="countdown-overlay">
+          <p className="pulse-text">Stay still...</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MasterComponent() {
+  const [showImg, setShowImg] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [value, setValue] = useState("");
+  const [lastFrame, setLastFrame] = useState(null);
+  const [isCameraPaused, setIsCameraPaused] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [loginData, setLoginData] = useState(null);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  
+  // Shared ref for one-off screenshot captures
+  const [scannerRef, setScannerRef] = useState(null);
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   function register_new_user_ok(text) {
     if (lastFrame) {
@@ -142,47 +252,9 @@ function MasterComponent() {
     }
   }
 
-  function send_img_login() {
-    if (webcamRef.current) {
-      const imageSrc = webcamRef.current.getScreenshot();
-      if (!imageSrc) return;
-
-      const blob = dataURItoBlob(imageSrc);
-      const apiUrl = API_BASE_URL + "/login";
-      const file = new File([blob], "webcam-frame.png", { type: "image/png" });
-      const formData = new FormData();
-      formData.append("file", file);
-
-      axios
-        .post(apiUrl, formData, {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        })
-        .then((response) => {
-          if (response.data.match_status === true) {
-            // Display Persistent Identity Card instead of toast
-            setLoginData({
-              username: response.data.user,
-              imageSrc: imageSrc,
-              timestamp: new Date()
-            });
-          } else {
-            console.log("Unknown user detected and ignored.");
-          }
-        })
-        .catch((error) => {
-          console.error("Error sending image to API:", error);
-          if (error.response && error.response.data && error.response.data.error) {
-            toast.error(error.response.data.error);
-          }
-        });
-    }
-  }
-
   function send_img_logout() {
-    if (webcamRef.current) {
-      const imageSrc = webcamRef.current.getScreenshot();
+    if (scannerRef && scannerRef.current) {
+      const imageSrc = scannerRef.current.getScreenshot();
       if (!imageSrc) return;
 
       const blob = dataURItoBlob(imageSrc);
@@ -263,8 +335,8 @@ function MasterComponent() {
             onClick={() => {
               setIsAdmin(false);
               setIsRegistering(true);
-              if (webcamRef.current) {
-                setLastFrame(webcamRef.current.getScreenshot());
+              if (scannerRef && scannerRef.current) {
+                setLastFrame(scannerRef.current.getScreenshot());
                 setShowImg(true);
               }
               setValue("");
@@ -295,7 +367,6 @@ function MasterComponent() {
       );
     }
 
-    // Default state: login is automated, so just show Logout & Admin Tools
     return (
       <div className="buttons-container">
         <button
@@ -305,6 +376,13 @@ function MasterComponent() {
           }}
         >
           <FiLogOut size={20} /> Logout
+        </button>
+        <button
+          className={isCameraPaused ? "btn-primary" : "btn-secondary"}
+          onClick={() => setIsCameraPaused(!isCameraPaused)}
+        >
+          {isCameraPaused ? <FiVideo size={20} /> : <FiVideoOff size={20} />}
+          {isCameraPaused ? "Resume Camera" : "Pause Camera"}
         </button>
         <button
           className="btn-secondary"
@@ -325,99 +403,78 @@ function MasterComponent() {
         className: 'custom-toast',
         style: { background: '#333', color: '#fff', borderRadius: '10px' }
       }} />
-      <div className="webcam-container" style={{ position: 'relative' }}>
-
-        {/* Standby Clock */}
-        {!loginData && (
-          <div className="clock-overlay">
-            <p className="clock-time">
-              {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </p>
-            <p className="clock-date">
-              {currentTime.toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-            </p>
+      
+      <div className="scanner-section">
+        <header className="scanner-header">
+          <div className="scanner-time">
+            {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </div>
-        )}
-
-        {/* Countdown Overlays */}
-        {countdown !== null && countdown > 0 && !loginData && (
-          <div className="countdown-overlay">
-            <p className="pulse-text">Stay still...</p>
-            <h1 className="countdown-number">{countdown}</h1>
+          <div className="scanner-date">
+            {currentTime.toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </div>
-        )}
+        </header>
 
-        {/* Success Identity Card */}
-        {loginData && (
-          <div className="identity-card">
-            <div className="id-header">
-              <img src={loginData.imageSrc} alt="Profile" className="id-avatar" />
-              <div className="id-title">
-                <h2 className="id-name">{loginData.username}</h2>
-                <p className="id-role">Identity Verified</p>
+        <div className="webcam-container" style={{ position: 'relative' }}>
+          {loginData && (
+            <div className="identity-card">
+              <div className="id-header">
+                <img src={loginData.imageSrc} alt="Profile" className="id-avatar" />
+                <div className="id-title">
+                  <h2 className="id-name">{loginData.username}</h2>
+                  <div className="id-status">
+                    <FiCheck className="id-check-icon" />
+                    <p className="id-role">Successfully Checked In</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="id-details">
+                <div className="id-row">
+                  <span className="id-label">Fullname</span>
+                  <span className="id-value">Pending Assignment</span>
+                </div>
+                <div className="id-row">
+                  <span className="id-label">Office</span>
+                  <span className="id-value">Pending Assignment</span>
+                </div>
+                <div className="id-row">
+                  <span className="id-label">Department</span>
+                  <span className="id-value">Pending Assignment</span>
+                </div>
+
+                <div className="id-row id-time-row">
+                  <span className="id-label">Time Recorded</span>
+                  <span className="id-value">
+                    {loginData.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  </span>
+                </div>
               </div>
             </div>
+          )}
 
-            <div className="id-details">
-              <div className="id-row">
-                <span className="id-label">Fullname</span>
-                <span className="id-value">Pending Assignment</span>
-              </div>
-              <div className="id-row">
-                <span className="id-label">Office</span>
-                <span className="id-value">Pending Assignment</span>
-              </div>
-              <div className="id-row">
-                <span className="id-label">Department</span>
-                <span className="id-value">Pending Assignment</span>
-              </div>
-
-              <div className="id-row id-time-row">
-                <span className="id-label">Time Recorded</span>
-                <span className="id-value">
-                  {loginData.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {!showImg ? (
-          <>
-            <div style={{ position: 'relative', display: 'inline-block', width: '100%', maxWidth: '600px' }}>
-              <Webcam
-                ref={webcamRef}
-                audio={false}
-                videoConstraints={{
-                  facingMode: "user"
-                }}
-                screenshotFormat="image/png"
-                className="img"
-                style={{ display: "block", width: "100%", height: "auto", borderRadius: '8px' }}
-              />
-              {boundingBox.map((box, index) => (
-                <div
-                  key={index}
-                  style={{
-                    border: '3px solid #10b981',
-                    position: 'absolute',
-                    top: `${box.yCenter * 115}%`,
-                    left: `${box.xCenter * 125}%`,
-                    width: `${box.width * 145}%`,
-                    height: `${box.height * 145}%`,
-                    transform: 'translate(-50%, -50%)',
-                    zIndex: 2,
-                    pointerEvents: 'none',
-                    borderRadius: '4px'
-                  }}
+          {!showImg ? (
+            <>
+              {!isCameraPaused ? (
+                <FaceDetectionScanner
+                  isRegistering={isRegistering}
+                  isAdmin={isAdmin}
+                  loginData={loginData}
+                  isProcessing={isProcessing}
+                  setIsProcessing={setIsProcessing}
+                  setLoginData={setLoginData}
+                  setScreenshotRef={setScannerRef}
                 />
-              ))}
-            </div>
-          </>
-        ) : (
-          <img className="img" src={lastFrame} alt="Captured frame" />
-        )}
-        {isLoading && <div style={{ position: 'absolute', top: 10, left: 10, background: 'rgba(0,0,0,0.5)', padding: '5px', borderRadius: '5px', pointerEvents: 'none', zIndex: 3, color: 'white' }}>Loading Face Model...</div>}
+              ) : (
+                <div className="camera-paused-placeholder">
+                  <FiVideoOff size={64} style={{ opacity: 0.5, marginBottom: '16px' }} />
+                  <p style={{ fontSize: '20px', fontWeight: '500', color: '#94a3b8' }}>Camera is Paused</p>
+                </div>
+              )}
+            </>
+          ) : (
+            <img className="img" src={lastFrame} alt="Captured frame" />
+          )}
+        </div>
       </div>
       {renderButtons()}
     </div>
