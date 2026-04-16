@@ -108,6 +108,13 @@ def register_new_user(request):
         embeddings = face_recognition.face_encodings(img)
         
         if len(embeddings) > 0:
+            # Check if this face already exists in the system
+            existing_name, match_status = recognize(img)
+            if match_status:
+                if os.path.exists(temp_filename):
+                    os.remove(temp_filename)
+                return JsonResponse({'error': f'Face is already registered under {existing_name}'}, status=400)
+
             # Create/update user in database
             user, created = User.objects.update_or_create(
                 username=username,
