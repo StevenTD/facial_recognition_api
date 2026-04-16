@@ -92,10 +92,18 @@ def login(request):
             with open(os.path.join(ATTENDANCE_LOG_DIR, '{}.csv'.format(date)), 'a') as f:
                 f.write('{},{},{}\n'.format(user_name, datetime.datetime.now(), 'IN'))
 
-        if os.path.exists(filename):
-            os.remove(filename)
+            if os.path.exists(filename):
+                os.remove(filename)
+            return JsonResponse({'user': user_name, 'match_status': True})
+        else:
+            if os.path.exists(filename):
+                os.remove(filename)
 
-        return JsonResponse({'user': user_name, 'match_status': bool(match_status)})
+            error_msg = 'Access denied. Face not recognized.'
+            if user_name == 'no_persons_found':
+                error_msg = 'No face detected. Please ensure your face is clearly visible.'
+
+            return JsonResponse({'match_status': False, 'error': error_msg}, status=400)
     return JsonResponse({'error': 'Invalid request'}, status=400)
 
 @csrf_exempt
