@@ -173,6 +173,9 @@ function MasterComponent() {
         })
         .catch((error) => {
           console.error("Error sending image to API:", error);
+          if (error.response && error.response.data && error.response.data.error) {
+            toast.error(error.response.data.error);
+          }
         });
     }
   }
@@ -203,7 +206,11 @@ function MasterComponent() {
         })
         .catch((error) => {
           console.error("Error sending image to API:", error);
-          toast.error("Logout request failed.");
+          if (error.response && error.response.data && error.response.data.error) {
+            toast.error(error.response.data.error);
+          } else {
+            toast.error("Logout request failed.");
+          }
         });
     }
   }
