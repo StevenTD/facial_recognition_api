@@ -33,7 +33,8 @@ def recognize(img):
     for user in users:
         # Load encoding from BinaryField
         embeddings = pickle.loads(user.face_encoding)[0]
-        match = face_recognition.compare_faces([embeddings], embeddings_unknown)[0]
+        # Use a stricter tolerance (default is 0.6) to prevent false positives
+        match = face_recognition.compare_faces([embeddings], embeddings_unknown, tolerance=0.45)[0]
         if match:
             matched_user_name = user.username
             break
