@@ -84,6 +84,12 @@ class AttendanceLog(BaseModelWithAudit):
         ('IN', 'Login'),
         ('OUT', 'Logout'),
     ]
+    LOG_TYPE_CHOICES = [
+        ("MI", "Morning In"),
+        ("MO", "Morning Out"),
+        ("AI", "Afternoon In"),
+        ("AO", "Afternoon Out"),
+    ]
     face = models.ForeignKey(
         Face, 
         on_delete=models.SET_NULL, 
@@ -91,8 +97,14 @@ class AttendanceLog(BaseModelWithAudit):
         blank=True, 
         related_name="attendance_logs"
     )
-    username = models.CharField(max_length=150) # To record the username at the time of log
+    username = models.CharField(max_length=150, db_index=True) # To record the username at the time of log
     action = models.CharField(max_length=3, choices=ACTION_CHOICES)
+    log_type = models.CharField(
+        max_length=2, 
+        choices=LOG_TYPE_CHOICES,
+        null=True, 
+        blank=True
+    )
     timestamp = models.DateTimeField(auto_now_add=True)
     captured_image = models.ImageField(upload_to='attendance/', null=True, blank=True)
 
