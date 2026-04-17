@@ -7,6 +7,7 @@ ticket_attachments/
 /static
 /face_recognition/media/
 /face_recognition/logs/
+/test_faces
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
