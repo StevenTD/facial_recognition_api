@@ -8,9 +8,10 @@ import shutil
 import cv2
 import dlib
 import face_recognition
+from django.conf import settings
 
 # Mount the Silent-Face-Anti-Spoofing repository so we can import its modules seamlessly
-SPOOFING_DIR = r'C:\Users\steve\Git\facial_recognition_api\Silent-Face-Anti-Spoofing'
+SPOOFING_DIR = settings.SPOOFING_DIR
 
 if SPOOFING_DIR not in sys.path:
     sys.path.insert(0, SPOOFING_DIR)
