@@ -135,3 +135,4 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 SPOOFING_DIR = str(BASE_DIR / "Silent-Face-Anti-Spoofing")
+LIVENESS_DETECTION_ENABLED = False

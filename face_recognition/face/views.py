@@ -74,16 +74,17 @@ def login(request):
         # Explicit resize to strictly 3:4 ratio to bypass the check_image fail in Silent-Face-Anti-Spoofing
         img_liveness = cv2.resize(img, (600, 800))
 
-        try:
-            # 1 == real face, 0 or 2 == spoof attempt
-            label = check_liveness(img_liveness, MODEL_DIR, DEVICE_ID)
-            if label != 1:
-                if os.path.exists(filename):
-                    os.remove(filename)
-                return JsonResponse({'match_status': False, 'error': 'Spoofing detected. Please use a live face.'}, status=400)
-        except Exception as e:
-            print("Liveness detection error: ", str(e))
-            pass # fallback to recognition if liveness fails to initialize properly, or we can choose to strictly block
+        if settings.LIVENESS_DETECTION_ENABLED:
+            try:
+                # 1 == real face, 0 or 2 == spoof attempt
+                label = check_liveness(img_liveness, MODEL_DIR, DEVICE_ID)
+                if label != 1:
+                    if os.path.exists(filename):
+                        os.remove(filename)
+                    return JsonResponse({'match_status': False, 'error': 'Spoofing detected. Please use a live face.'}, status=400)
+            except Exception as e:
+                print("Liveness detection error: ", str(e))
+                pass # fallback to recognition if liveness fails to initialize properly, or we can choose to strictly block
 
         user_name, match_status = recognize(img)
 
