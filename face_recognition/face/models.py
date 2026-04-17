@@ -49,14 +49,11 @@ class CustomUserManager(BaseUserManager):
         return self.create_user(username, password, **extra_fields)
 
 class User(AbstractBaseUser, PermissionsMixin, BaseModelWithAudit):
-    """Custom User model for the system with biometric data."""
+    """Custom User model for the system."""
     username = models.CharField(max_length=150, unique=True)
     is_staff = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     
-    face_image = models.ImageField(upload_to='faces/', null=True, blank=True)
-    face_encoding = models.BinaryField(null=True, blank=True)
-
     objects = CustomUserManager()
 
     USERNAME_FIELD = 'username'
@@ -64,3 +61,40 @@ class User(AbstractBaseUser, PermissionsMixin, BaseModelWithAudit):
 
     def __str__(self):
         return self.username
+
+class Face(BaseModelWithAudit):
+    """Model to store biometric data for faces."""
+    username = models.CharField(max_length=150, db_index=True)
+    face_image = models.ImageField(upload_to='faces/', null=True, blank=True)
+    face_encoding = models.BinaryField(null=True, blank=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name="faces"
+    )
+
+    def __str__(self):
+        return f"Face for {self.username}"
+
+class AttendanceLog(BaseModelWithAudit):
+    """Model to store attendance logs."""
+    ACTION_CHOICES = [
+        ('IN', 'Login'),
+        ('OUT', 'Logout'),
+    ]
+    face = models.ForeignKey(
+        Face, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name="attendance_logs"
+    )
+    username = models.CharField(max_length=150) # To record the username at the time of log
+    action = models.CharField(max_length=3, choices=ACTION_CHOICES)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    captured_image = models.ImageField(upload_to='attendance/', null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.username} - {self.action} at {self.timestamp}"

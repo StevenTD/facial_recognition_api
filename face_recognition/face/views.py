@@ -29,7 +29,8 @@ DEVICE_ID = 0
 from django.http import JsonResponse, FileResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.core.files.base import ContentFile
-from .models import User
+from django.core.files import File
+from .models import User, Face, AttendanceLog
 
 ATTENDANCE_LOG_DIR = './logs'
 for dir_ in [ATTENDANCE_LOG_DIR]:
@@ -39,25 +40,25 @@ for dir_ in [ATTENDANCE_LOG_DIR]:
 def recognize(img):
     embeddings_unknown = face_recognition.face_encodings(img)
     if len(embeddings_unknown) == 0:
-        return 'no_persons_found', False
+        return None, False
     else:
         embeddings_unknown = embeddings_unknown[0]
 
     match = False
-    matched_user_name = 'unknown_person'
+    matched_face = None
 
-    # Query all users with encodings
-    users = User.objects.exclude(face_encoding__isnull=True)
-    for user in users:
+    # Query all faces with encodings
+    faces = Face.objects.exclude(face_encoding__isnull=True)
+    for face in faces:
         # Load encoding from BinaryField
-        embeddings = pickle.loads(user.face_encoding)[0]
+        embeddings = pickle.loads(face.face_encoding)[0]
         # Use a stricter tolerance (default is 0.6) to prevent false positives
         match = face_recognition.compare_faces([embeddings], embeddings_unknown, tolerance=0.45)[0]
         if match:
-            matched_user_name = user.username
+            matched_face = face
             break
 
-    return matched_user_name, match
+    return matched_face, match
 
 @csrf_exempt
 def login(request):
@@ -86,23 +87,28 @@ def login(request):
                 print("Liveness detection error: ", str(e))
                 pass # fallback to recognition if liveness fails to initialize properly, or we can choose to strictly block
 
-        user_name, match_status = recognize(img)
+        matched_face, match_status = recognize(img)
 
         if match_status:
-            epoch_time = time.time()
-            date = time.strftime('%Y%m%d', time.localtime(epoch_time))
-            with open(os.path.join(ATTENDANCE_LOG_DIR, '{}.csv'.format(date)), 'a') as f:
-                f.write('{},{},{}\n'.format(user_name, datetime.datetime.now(), 'IN'))
+            # Create database attendance log
+            with open(filename, 'rb') as f:
+                log = AttendanceLog.objects.create(
+                    face=matched_face,
+                    username=matched_face.username,
+                    action='IN'
+                )
+                # Save the captured face image to the log
+                log.captured_image.save(f"login_{matched_face.username}_{uuid.uuid4().hex[:8]}.png", File(f), save=True)
 
             if os.path.exists(filename):
                 os.remove(filename)
-            return JsonResponse({'user': user_name, 'match_status': True})
+            return JsonResponse({'user': matched_face.username, 'match_status': True})
         else:
             if os.path.exists(filename):
                 os.remove(filename)
 
             error_msg = 'Access denied. Face not recognized.'
-            if user_name == 'no_persons_found':
+            if matched_face is None:
                 error_msg = 'No face detected. Please ensure your face is clearly visible.'
 
             return JsonResponse({'match_status': False, 'error': error_msg}, status=400)
@@ -118,13 +124,19 @@ def logout(request):
             for chunk in file.chunks():
                 f.write(chunk)
 
-        user_name, match_status = recognize(cv2.imread(filename))
+        matched_face, match_status = recognize(cv2.imread(filename))
 
+        user_name = 'unknown_person'
         if match_status:
-            epoch_time = time.time()
-            date = time.strftime('%Y%m%d', time.localtime(epoch_time))
-            with open(os.path.join(ATTENDANCE_LOG_DIR, '{}.csv'.format(date)), 'a') as f:
-                f.write('{},{},{}\n'.format(user_name, datetime.datetime.now(), 'OUT'))
+            user_name = matched_face.username
+            # Create database attendance log
+            with open(filename, 'rb') as f:
+                log = AttendanceLog.objects.create(
+                    face=matched_face,
+                    username=matched_face.username,
+                    action='OUT'
+                )
+                log.captured_image.save(f"logout_{matched_face.username}_{uuid.uuid4().hex[:8]}.png", File(f), save=True)
 
         if os.path.exists(filename):
             os.remove(filename)
@@ -152,21 +164,26 @@ def register_new_user(request):
 
         if len(embeddings) > 0:
             # Check if this face already exists in the system
-            existing_name, match_status = recognize(img)
+            matched_face, match_status = recognize(img)
             if match_status:
                 if os.path.exists(temp_filename):
                     os.remove(temp_filename)
-                return JsonResponse({'error': f'Face is already registered under {existing_name}'}, status=400)
+                return JsonResponse({'error': f'Face is already registered under {matched_face.username}'}, status=400)
 
-            # Create/update user in database
-            user, created = User.objects.update_or_create(
+            # Try to associate with an existing user if one exists with the same employee ID
+            try:
+                user = User.objects.get(username=username)
+            except User.DoesNotExist:
+                user = None
+
+            # Create a new Face record (not update_or_create, to allow multiple faces)
+            face = Face.objects.create(
                 username=username,
-                defaults={
-                    'face_encoding': pickle.dumps(embeddings)
-                }
+                face_encoding=pickle.dumps(embeddings),
+                user=user
             )
-            # Save the image file to the User model (Django handles storage)
-            user.face_image.save(f"{username}.png", file_obj, save=True)
+            # Save the image file to the Face model
+            face.face_image.save(f"{username}.png", file_obj, save=True)
         else:
             if os.path.exists(temp_filename):
                 os.remove(temp_filename)
@@ -180,9 +197,36 @@ def register_new_user(request):
 
 @csrf_exempt
 def get_attendance_logs(request):
+    """Returns a ZIP file containing CSV of all database attendance logs."""
     if request.method == 'GET':
-        filename = 'out.zip'
-        shutil.make_archive(filename[:-4], 'zip', ATTENDANCE_LOG_DIR)
+        import csv
+        from io import StringIO
+        
+        # Create a CSV and zip it
+        logs = AttendanceLog.objects.all().order_by('-timestamp')
+        
+        csv_buffer = StringIO()
+        writer = csv.writer(csv_buffer)
+        writer.writerow(['Username', 'Timestamp', 'Action'])
+        
+        for log in logs:
+            writer.writerow([log.username, log.timestamp, log.action])
+        
+        # Save to a temp folder and zip
+        TEMP_EXPORT_DIR = './temp_export'
+        if not os.path.exists(TEMP_EXPORT_DIR):
+            os.mkdir(TEMP_EXPORT_DIR)
+        
+        csv_file_path = os.path.join(TEMP_EXPORT_DIR, 'attendance_logs.csv')
+        with open(csv_file_path, 'w') as f:
+            f.write(csv_buffer.getvalue())
+            
+        filename = 'attendance_export.zip'
+        shutil.make_archive(filename[:-4], 'zip', TEMP_EXPORT_DIR)
+        
+        # Clean up temp file
+        os.remove(csv_file_path)
+        os.rmdir(TEMP_EXPORT_DIR)
 
         return FileResponse(open(filename, 'rb'), as_attachment=True, filename=filename)
     return JsonResponse({'error': 'Invalid request'}, status=400)
