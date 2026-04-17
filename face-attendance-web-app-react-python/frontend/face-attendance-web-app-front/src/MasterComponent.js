@@ -4,8 +4,7 @@ import API_BASE_URL from "./API";
 import toast, { Toaster } from "react-hot-toast";
 import { FiLogOut, FiUserPlus, FiSettings, FiDownload, FiArrowLeft, FiCheck, FiX, FiVideo, FiVideoOff } from "react-icons/fi";
 import Webcam from "react-webcam";
-import { useFaceDetection } from "react-use-face-detection";
-import { FaceDetection } from "@mediapipe/face_detection";
+import { FaceMesh } from "@mediapipe/face_mesh";
 import { Camera } from "@mediapipe/camera_utils";
 
 function dataURItoBlob(dataURI) {
@@ -26,40 +25,87 @@ function FaceDetectionScanner({
   isProcessing,
   setIsProcessing,
   setLoginData,
-  setScreenshotRef
+  setScreenshotRef,
+  livenessMode
 }) {
-  const { webcamRef, boundingBox, isLoading, detected, facesDetected } = useFaceDetection({
-    faceDetectionOptions: {
-      model: 'short',
-    },
-    faceDetection: new FaceDetection({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection@0.4.1646425229/${file}`,
-    }),
-    camera: ({ mediaSrc, onFrame, width, height }) =>
-      new Camera(mediaSrc, {
-        onFrame,
-        width,
-        height,
-      }),
-  });
-
+  const webcamRef = React.useRef(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [facesDetected, setFacesDetected] = useState(0);
+  const [faceMeshResults, setFaceMeshResults] = useState(null);
   const [countdown, setCountdown] = useState(null);
+  const [blinkDetected, setBlinkDetected] = useState(false);
+  const [awaitingBlink, setAwaitingBlink] = useState(false);
+
+  // EAR Thresholds & Refs to avoid closure staleness
+  const EAR_THRESHOLD = 0.22;
+  const EAR_CONSEC_FRAMES = 1; // Lowered to 1 for faster detection
+  const earCounterRef = React.useRef(0);
+  const blinkDetectedRef = React.useRef(false);
+
+  // Initialize Face Mesh
+  useEffect(() => {
+    const faceMesh = new FaceMesh({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
+    });
+
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+    });
+
+    faceMesh.onResults((results) => {
+      setFaceMeshResults(results);
+      setFacesDetected(results.multiFaceLandmarks?.length || 0);
+      setIsLoading(false);
+
+      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+        const landmarks = results.multiFaceLandmarks[0];
+        
+        // Calculate EAR for Blink Detection
+        // Left Eye: 33 (corner), 160(top), 158(top), 133(corner), 153(bottom), 144(bottom)
+        const getDist = (p1, p2) => Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+        
+        const leftEAR = (getDist(landmarks[160], landmarks[144]) + getDist(landmarks[158], landmarks[153])) / (2 * getDist(landmarks[33], landmarks[133]));
+        const rightEAR = (getDist(landmarks[385], landmarks[380]) + getDist(landmarks[387], landmarks[373])) / (2 * getDist(landmarks[362], landmarks[263]));
+        
+        const avgEAR = (leftEAR + rightEAR) / 2;
+
+        if (avgEAR < EAR_THRESHOLD) {
+          earCounterRef.current += 1;
+        } else {
+          if (earCounterRef.current >= EAR_CONSEC_FRAMES && !blinkDetectedRef.current) {
+            console.log("Blink Detected! EAR:", avgEAR.toFixed(3));
+            blinkDetectedRef.current = true;
+            setBlinkDetected(true);
+          }
+          earCounterRef.current = 0;
+        }
+      }
+    });
+
+    if (webcamRef.current && webcamRef.current.video) {
+      const camera = new Camera(webcamRef.current.video, {
+        onFrame: async () => {
+          if (webcamRef.current && webcamRef.current.video) {
+            await faceMesh.send({ image: webcamRef.current.video });
+          }
+        },
+        width: 640,
+        height: 480,
+      });
+      camera.start();
+    }
+
+    return () => faceMesh.close();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync webcam ref to parent for one-off captures
   useEffect(() => {
     setScreenshotRef(webcamRef);
     return () => setScreenshotRef(null);
   }, [webcamRef, setScreenshotRef]);
-
-  // Explicitly close camera tracks on unmount
-  useEffect(() => {
-    return () => {
-      if (webcamRef.current && webcamRef.current.video && webcamRef.current.video.srcObject) {
-        const stream = webcamRef.current.video.srcObject;
-        stream.getTracks().forEach(track => track.stop());
-      }
-    };
-  }, [webcamRef]);
 
   function send_img_login() {
     if (webcamRef.current) {
@@ -85,8 +131,6 @@ function FaceDetectionScanner({
               imageSrc: imageSrc,
               timestamp: new Date()
             });
-          } else {
-            console.log("Unknown user detected and ignored.");
           }
         })
         .catch((error) => {
@@ -98,45 +142,90 @@ function FaceDetectionScanner({
     }
   }
 
+  // Handle Scan Logic based on Mode
   useEffect(() => {
     let timerId;
-    if (isRegistering || isAdmin || loginData !== null) {
+    if (isRegistering || isAdmin || loginData !== null || isProcessing) {
       setCountdown(null);
+      setAwaitingBlink(false);
       return;
     }
 
-    if (detected && facesDetected > 0 && !isProcessing) {
-      if (countdown === null) {
-        setCountdown(3);
-      } else if (countdown > 0) {
-        timerId = setTimeout(() => {
-          setCountdown(countdown - 1);
-        }, 1000);
-      } else if (countdown === 0) {
-        setIsProcessing(true);
-        setCountdown(null);
-        send_img_login();
-        setTimeout(() => {
-          setIsProcessing(false);
-          setLoginData(null);
-        }, 5000);
+    if (facesDetected > 0) {
+      if (livenessMode === 'blink') {
+        if (!blinkDetected && !awaitingBlink) {
+          setAwaitingBlink(true);
+          blinkDetectedRef.current = false; // Reset ref
+        } else if (blinkDetected) {
+          setIsProcessing(true);
+          setBlinkDetected(false);
+          blinkDetectedRef.current = false;
+          setAwaitingBlink(false);
+          send_img_login();
+          setTimeout(() => {
+            setIsProcessing(false);
+            setLoginData(null);
+          }, 5000);
+        }
+      } else {
+        // Standard Timer Mode
+        if (countdown === null) {
+          setCountdown(3);
+        } else if (countdown > 0) {
+          timerId = setTimeout(() => {
+            setCountdown(countdown - 1);
+          }, 1000);
+        } else if (countdown === 0) {
+          setIsProcessing(true);
+          setCountdown(null);
+          send_img_login();
+          setTimeout(() => {
+            setIsProcessing(false);
+            setLoginData(null);
+          }, 5000);
+        }
       }
     } else {
-      if (!isProcessing && countdown !== null) {
-        setCountdown(null);
-      }
+      setCountdown(null);
+      setAwaitingBlink(false);
+      setBlinkDetected(false);
     }
     return () => {
       if (timerId) clearTimeout(timerId);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detected, facesDetected, countdown, isRegistering, isAdmin, isProcessing, loginData]);
+  }, [facesDetected, countdown, isRegistering, isAdmin, isProcessing, loginData, livenessMode, blinkDetected, awaitingBlink]);
+
+  // Calculate box from landmarks if available
+  const getBox = () => {
+    if (!faceMeshResults?.multiFaceLandmarks?.[0]) return null;
+    const lms = faceMeshResults.multiFaceLandmarks[0];
+    
+    // Mirror the X coordinates because the webcam component is mirrored={true}
+    const x = lms.map(p => 1 - p.x);
+    const y = lms.map(p => p.y);
+    
+    const minX = Math.min(...x);
+    const maxX = Math.max(...x);
+    const minY = Math.min(...y);
+    const maxY = Math.max(...y);
+    return {
+      x: minX * 100,
+      y: minY * 100,
+      width: (maxX - minX) * 100,
+      height: (maxY - minY) * 100
+    };
+  };
+
+  const box = getBox();
+  const borderColor = awaitingBlink ? '#f59e0b' : (blinkDetected || (countdown === 0)) ? '#10b981' : '#3b82f6';
 
   return (
     <div style={{ position: 'relative', display: 'inline-block', width: '100%', maxWidth: '600px' }}>
       <Webcam
         ref={webcamRef}
         audio={false}
+        mirrored={true}
         videoConstraints={{
           facingMode: "user"
         }}
@@ -144,41 +233,47 @@ function FaceDetectionScanner({
         className="img"
         style={{ display: "block", width: "100%", height: "auto", borderRadius: '8px' }}
       />
-      {boundingBox.map((box, index) => (
+      
+      {box && (
         <div
-          key={index}
           style={{
-            border: '3px solid ' + (countdown !== null && countdown > 0 ? '#3b82f6' : '#10b981'),
+            border: `3px solid ${borderColor}`,
             position: 'absolute',
-            top: `${box.yCenter * 115}%`,
-            left: `${box.xCenter * 125}%`,
-            width: `${box.width * 145}%`,
-            height: `${box.height * 145}%`,
-            transform: 'translate(-50%, -50%)',
+            top: `${box.y}%`,
+            left: `${box.x}%`,
+            width: `${box.width}%`,
+            height: `${box.height}%`,
             zIndex: 2,
             pointerEvents: 'none',
-            borderRadius: '8px',
+            borderRadius: '12px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            transition: 'border-color 0.3s ease'
+            transition: 'all 0.3s ease'
           }}
         >
           {countdown !== null && countdown > 0 && (
-            <div className="face-countdown">
-              {countdown}
+            <div className="face-countdown">{countdown}</div>
+          )}
+          {awaitingBlink && !blinkDetected && (
+            <div className="blink-prompt" style={{ color: '#f59e0b', fontSize: '24px', fontWeight: 'bold', textAlign: 'center', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
+              Blink now
             </div>
           )}
         </div>
-      ))}
+      )}
+
       {isLoading && (
         <div style={{ position: 'absolute', top: 10, left: 10, background: 'rgba(0,0,0,0.5)', padding: '5px', borderRadius: '5px', pointerEvents: 'none', zIndex: 3, color: 'white' }}>
-          Loading Face Model...
+          Initializing High-Security Engine...
         </div>
       )}
-      {countdown !== null && countdown > 0 && !loginData && (
+      
+      {((countdown !== null && countdown > 0) || awaitingBlink) && !loginData && (
         <div className="countdown-overlay">
-          <p className="pulse-text">Stay still...</p>
+          <p className="pulse-text" style={{ color: awaitingBlink ? '#f59e0b' : 'white' }}>
+            {awaitingBlink ? "Verifying Liveness..." : "Stay still..."}
+          </p>
         </div>
       )}
     </div>
@@ -195,9 +290,14 @@ function MasterComponent() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [loginData, setLoginData] = useState(null);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [livenessMode, setLivenessMode] = useState(localStorage.getItem('livenessMode') || 'standard');
   
   // Shared ref for one-off screenshot captures
   const [scannerRef, setScannerRef] = useState(null);
+
+  useEffect(() => {
+    localStorage.setItem('livenessMode', livenessMode);
+  }, [livenessMode]);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -330,6 +430,28 @@ function MasterComponent() {
     if (isAdmin) {
       return (
         <div className="buttons-container">
+          <div className="settings-card" style={{ background: 'rgba(255,255,255,0.05)', padding: '20px', borderRadius: '12px', marginBottom: '10px' }}>
+            <h3 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#94a3b8' }}>Security Mode</h3>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button 
+                className={livenessMode === 'standard' ? "btn-primary" : "btn-secondary"} 
+                style={{ fontSize: '14px', padding: '10px' }}
+                onClick={() => setLivenessMode('standard')}
+              >
+                Standard
+              </button>
+              <button 
+                className={livenessMode === 'blink' ? "btn-primary" : "btn-secondary"} 
+                style={{ fontSize: '14px', padding: '10px' }}
+                onClick={() => setLivenessMode('blink')}
+              >
+                High Security
+              </button>
+            </div>
+            <p style={{ fontSize: '12px', color: '#64748b', marginTop: '10px' }}>
+              {livenessMode === 'blink' ? "Requires physical blink detection." : "Uses 3-second stay-still timer."}
+            </p>
+          </div>
           <button
             className="btn-primary"
             onClick={() => {
@@ -463,6 +585,7 @@ function MasterComponent() {
                   setIsProcessing={setIsProcessing}
                   setLoginData={setLoginData}
                   setScreenshotRef={setScannerRef}
+                  livenessMode={livenessMode}
                 />
               ) : (
                 <div className="camera-paused-placeholder">
