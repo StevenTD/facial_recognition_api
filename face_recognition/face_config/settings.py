@@ -10,24 +10,33 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load environment variables from .env file
+load_dotenv(BASE_DIR / '.env')
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-%bm5s@9q^*^d74xkp*i)bfj#+fah-h7g0y**px$)n!)s$dopr('
+SECRET_KEY = os.getenv(
+    'SECRET_KEY',
+    'django-insecure-%bm5s@9q^*^d74xkp*i)bfj#+fah-h7g0y**px$)n!)s$dopr(',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG', 'True').lower() in ('true', '1', 'yes')
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
 
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'True').lower() in ('true', '1', 'yes')
 
 
 # Application definition
@@ -82,8 +91,12 @@ WSGI_APPLICATION = 'face_config.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': os.getenv('DB_ENGINE', 'django.db.backends.sqlite3'),
+        'NAME': os.getenv('DB_NAME', str(BASE_DIR / 'db.sqlite3')),
+        'USER': os.getenv('DB_USER', ''),
+        'PASSWORD': os.getenv('DB_PASSWORD', ''),
+        'HOST': os.getenv('DB_HOST', ''),
+        'PORT': os.getenv('DB_PORT', ''),
     }
 }
 
@@ -110,9 +123,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/4.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = os.getenv('LANGUAGE_CODE', 'en-us')
 
-TIME_ZONE = 'Asia/Manila'
+TIME_ZONE = os.getenv('TIME_ZONE', 'Asia/Manila')
 
 USE_I18N = True
 
@@ -135,43 +148,22 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 SPOOFING_DIR = str(BASE_DIR / "Silent-Face-Anti-Spoofing")
-LIVENESS_DETECTION_ENABLED = False
+LIVENESS_DETECTION_ENABLED = os.getenv('LIVENESS_DETECTION_ENABLED', 'False').lower() in ('true', '1', 'yes')
 
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 3000
 
 # Face Recognition Settings
-FACE_RECOGNITION_OPTIMIZED = False
-FACE_RECOGNITION_TOLERANCE = 0.45
+FACE_RECOGNITION_OPTIMIZED = os.getenv('FACE_RECOGNITION_OPTIMIZED', 'False').lower() in ('true', '1', 'yes')
+FACE_RECOGNITION_TOLERANCE = float(os.getenv('FACE_RECOGNITION_TOLERANCE', '0.45'))
 
 # ---------------------------------------------------------------------------
 # Frappe HRMS Integration
 # ---------------------------------------------------------------------------
-# Fill in the values below to enable automatic Employee Check-in syncing.
-# In production, load secrets from environment variables instead of
-# hardcoding them here:
-#   import os
-#   "API_KEY":    os.environ["FRAPPE_API_KEY"],
-#   "API_SECRET": os.environ["FRAPPE_API_SECRET"],
-# ---------------------------------------------------------------------------
 FRAPPE_HRMS = {
-    # Base URL of your Frappe / ERPNext site — no trailing slash
-    "BASE_URL": "http://192.168.1.129:8001",
-
-    # API credentials (generate via ERPNext > User > API Access > Generate Keys)
-    "API_KEY":    "b9898777e9d8303",
-    "API_SECRET": "bcdebd7f9c5231d",
-
-    # The Employee docfield whose value matches the facial-recognition username.
-    # Most common choices:
-    #   "attendance_device_id"  — biometric device ID (recommended)
-    #   "name"                  — Frappe employee name (e.g. "EMP-0001")
-    #   "employee_number"       — your custom HR employee number
-    "EMPLOYEE_FIELDNAME": "name",
-
-    # Label sent to Frappe to identify this kiosk / installation
-    "DEVICE_ID": "FACIAL_RECOGNITION_KIOSK_01",
-
-    # Request timeout in seconds (handlers run in a background thread,
-    # so this does NOT affect login response time)
-    "TIMEOUT": 10,
+    "BASE_URL": os.getenv("FRAPPE_BASE_URL", "http://192.168.1.129:8001"),
+    "API_KEY": os.getenv("FRAPPE_API_KEY", "b9898777e9d8303"),
+    "API_SECRET": os.getenv("FRAPPE_API_SECRET", "bcdebd7f9c5231d"),
+    "EMPLOYEE_FIELDNAME": os.getenv("FRAPPE_EMPLOYEE_FIELDNAME", "name"),
+    "DEVICE_ID": os.getenv("FRAPPE_DEVICE_ID", "FACIAL_RECOGNITION_KIOSK_01"),
+    "TIMEOUT": int(os.getenv("FRAPPE_TIMEOUT", "10")),
 }
