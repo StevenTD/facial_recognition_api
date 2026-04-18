@@ -5,6 +5,7 @@ import pickle
 import datetime
 import time
 import shutil
+import threading
 import cv2
 import dlib
 import face_recognition
@@ -34,6 +35,7 @@ from django.utils import timezone
 
 from .models import User, Face, AttendanceLog
 from .utils import get_next_log_type, ATTENDANCE_WINDOWS, MANILA_TZ
+from . import handlers
 
 ATTENDANCE_LOG_DIR = './logs'
 for dir_ in [ATTENDANCE_LOG_DIR]:
@@ -150,6 +152,27 @@ def login(request):
                 os.remove(filename)
 
             log_display = next(choice[1] for choice in AttendanceLog.LOG_TYPE_CHOICES if choice[0] == log_type)
+
+            # Build the shared payload for handlers and webhooks
+            event_payload = {
+                'username':         matched_face.username,
+                'log_type':         log_type,
+                'log_type_display': log_display,
+                'action':           action,
+                'timestamp':        log.timestamp.astimezone(MANILA_TZ).isoformat(),
+            }
+
+            # ── Code-level handlers (handlers.py) ───────────────────────────
+            # Each handler runs in a background thread so the login response
+            # is never delayed. Add your integration code in handlers.py.
+            if log_type == 'MI':
+                threading.Thread(target=handlers.on_morning_in,   args=(event_payload,), daemon=True).start()
+            elif log_type == 'MO':
+                threading.Thread(target=handlers.on_morning_out,  args=(event_payload,), daemon=True).start()
+            elif log_type == 'AI':
+                threading.Thread(target=handlers.on_afternoon_in,  args=(event_payload,), daemon=True).start()
+            elif log_type == 'AO':
+                threading.Thread(target=handlers.on_afternoon_out, args=(event_payload,), daemon=True).start()
 
             # Add the newly created log to history if not already there
             # (Though we already saved it, we need to refresh or just append)

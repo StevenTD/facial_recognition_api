@@ -142,3 +142,36 @@ DATA_UPLOAD_MAX_NUMBER_FIELDS = 3000
 # Face Recognition Settings
 FACE_RECOGNITION_OPTIMIZED = False
 FACE_RECOGNITION_TOLERANCE = 0.45
+
+# ---------------------------------------------------------------------------
+# Frappe HRMS Integration
+# ---------------------------------------------------------------------------
+# Fill in the values below to enable automatic Employee Check-in syncing.
+# In production, load secrets from environment variables instead of
+# hardcoding them here:
+#   import os
+#   "API_KEY":    os.environ["FRAPPE_API_KEY"],
+#   "API_SECRET": os.environ["FRAPPE_API_SECRET"],
+# ---------------------------------------------------------------------------
+FRAPPE_HRMS = {
+    # Base URL of your Frappe / ERPNext site — no trailing slash
+    "BASE_URL": "http://192.168.1.129:8001",
+
+    # API credentials (generate via ERPNext > User > API Access > Generate Keys)
+    "API_KEY":    "b9898777e9d8303",
+    "API_SECRET": "bcdebd7f9c5231d",
+
+    # The Employee docfield whose value matches the facial-recognition username.
+    # Most common choices:
+    #   "attendance_device_id"  — biometric device ID (recommended)
+    #   "name"                  — Frappe employee name (e.g. "EMP-0001")
+    #   "employee_number"       — your custom HR employee number
+    "EMPLOYEE_FIELDNAME": "name",
+
+    # Label sent to Frappe to identify this kiosk / installation
+    "DEVICE_ID": "FACIAL_RECOGNITION_KIOSK_01",
+
+    # Request timeout in seconds (handlers run in a background thread,
+    # so this does NOT affect login response time)
+    "TIMEOUT": 10,
+}

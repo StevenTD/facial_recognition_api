@@ -110,3 +110,43 @@ class AttendanceLog(BaseModelWithAudit):
 
     def __str__(self):
         return f"{self.username} - {self.action} at {self.timestamp}"
+
+
+class WebhookConfig(models.Model):
+    """
+    Configurable outbound webhook fired after a successful attendance log.
+    Add one entry per external system you want to notify.
+    """
+    METHOD_CHOICES = [
+        ('POST', 'POST'),
+        ('GET', 'GET'),
+    ]
+
+    name = models.CharField(max_length=100, help_text="Friendly label, e.g. 'HRIS System'")
+    url = models.URLField(help_text="Endpoint to call when the hook fires")
+    method = models.CharField(max_length=4, choices=METHOD_CHOICES, default='POST')
+    log_types = models.CharField(
+        max_length=20,
+        default='MI,MO,AI,AO',
+        help_text="Comma-separated log types that trigger this hook. E.g. 'MI,AO' or 'MI,MO,AI,AO'"
+    )
+    custom_headers = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Optional JSON object of extra HTTP headers, e.g. {\"Authorization\": \"Bearer token\"}"
+    )
+    timeout = models.PositiveSmallIntegerField(
+        default=5,
+        help_text="Request timeout in seconds"
+    )
+    is_enabled = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Webhook Config'
+        verbose_name_plural = 'Webhook Configs'
+
+    def __str__(self):
+        status = '✓' if self.is_enabled else '✗'
+        return f"[{status}] {self.name} → {self.url} ({self.log_types})"

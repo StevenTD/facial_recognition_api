@@ -11,3 +11,5 @@ tqdm==4.64.1
 torchvision==0.14.1
 torch==1.13.1
 tensorboardX==2.5.1
+# Frappe HRMS integration
+requests>=2.28.0
