@@ -108,6 +108,18 @@ class AttendanceLog(BaseModelWithAudit):
     timestamp = models.DateTimeField(auto_now_add=True)
     captured_image = models.ImageField(upload_to='attendance/', null=True, blank=True)
 
+    # Frappe HRMS sync tracking
+    frappe_synced = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Whether this log was successfully submitted to Frappe HRMS."
+    )
+    frappe_error = models.TextField(
+        blank=True,
+        default='',
+        help_text="Last error message from Frappe HRMS submission attempt."
+    )
+
     def __str__(self):
         return f"{self.username} - {self.action} at {self.timestamp}"
 
