@@ -110,6 +110,9 @@ def login(request):
             # Determine log type based on state and time
             log_type, error_message = get_next_log_type(matched_face)
 
+            # Fetch employee details from Frappe (safe — returns None on failure)
+            employee_info = handlers.fetch_employee_info(matched_face.username)
+
             # Fetch today's logs for display (by username, covers all enrolled faces)
             today_logs = AttendanceLog.objects.filter(
                 username=matched_face.username,
@@ -126,12 +129,18 @@ def login(request):
             if not log_type:
                 if os.path.exists(filename):
                     os.remove(filename)
-                return JsonResponse({
+                response_data = {
                     'user': matched_face.username,
                     'match_status': False,
                     'error': error_message,
                     'history': history
-                }, status=201)
+                }
+                if employee_info:
+                    response_data['employee_name'] = employee_info['employee_name']
+                    response_data['department']    = employee_info['department']
+                    response_data['designation']   = employee_info['designation']
+                    response_data['office']        = employee_info['office']
+                return JsonResponse(response_data, status=201)
 
             # Map log_type to action
             action_map = {w[0]: w[1] for w in ATTENDANCE_WINDOWS}
@@ -166,13 +175,13 @@ def login(request):
             # Each handler runs in a background thread so the login response
             # is never delayed. Add your integration code in handlers.py.
             if log_type == 'MI':
-                threading.Thread(target=handlers.on_morning_in,   args=(event_payload,), daemon=True).start()
+                threading.Thread(target=handlers.on_morning_in,   args=(event_payload,), kwargs={'log_id': log.pk}, daemon=True).start()
             elif log_type == 'MO':
-                threading.Thread(target=handlers.on_morning_out,  args=(event_payload,), daemon=True).start()
+                threading.Thread(target=handlers.on_morning_out,  args=(event_payload,), kwargs={'log_id': log.pk}, daemon=True).start()
             elif log_type == 'AI':
-                threading.Thread(target=handlers.on_afternoon_in,  args=(event_payload,), daemon=True).start()
+                threading.Thread(target=handlers.on_afternoon_in,  args=(event_payload,), kwargs={'log_id': log.pk}, daemon=True).start()
             elif log_type == 'AO':
-                threading.Thread(target=handlers.on_afternoon_out, args=(event_payload,), daemon=True).start()
+                threading.Thread(target=handlers.on_afternoon_out, args=(event_payload,), kwargs={'log_id': log.pk}, daemon=True).start()
 
             # Add the newly created log to history if not already there
             # (Though we already saved it, we need to refresh or just append)
@@ -183,14 +192,20 @@ def login(request):
                 'action': action
             })
 
-            return JsonResponse({
+            response_data = {
                 'user': matched_face.username,
                 'match_status': True,
                 'log_type': log_type,
                 'log_type_display': log_display,
                 'message': f"Logged as {log_display}",
                 'history': history
-            })
+            }
+            if employee_info:
+                response_data['employee_name'] = employee_info['employee_name']
+                response_data['department']    = employee_info['department']
+                response_data['designation']   = employee_info['designation']
+                response_data['office']        = employee_info['office']
+            return JsonResponse(response_data)
         else:
             if os.path.exists(filename):
                 os.remove(filename)
