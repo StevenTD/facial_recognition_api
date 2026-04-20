@@ -155,6 +155,7 @@ DATA_UPLOAD_MAX_NUMBER_FIELDS = 3000
 # Face Recognition Settings
 FACE_RECOGNITION_OPTIMIZED = os.getenv('FACE_RECOGNITION_OPTIMIZED', 'False').lower() in ('true', '1', 'yes')
 FACE_RECOGNITION_TOLERANCE = float(os.getenv('FACE_RECOGNITION_TOLERANCE', '0.45'))
+FACE_STRICT_DUPLICATE_CHECK  = os.getenv('FACE_RECOGNITION_OPTIMIZED', 'False').lower() in ('true', '1', 'yes')
 
 # ---------------------------------------------------------------------------
 # Frappe HRMS Integration

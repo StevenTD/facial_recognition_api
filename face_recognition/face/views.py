@@ -244,12 +244,18 @@ def register_new_user(request):
         embeddings = face_recognition.face_encodings(img)
 
         if len(embeddings) > 0:
-            # Check if this face already exists in the system
-            matched_face, match_status = recognize(img)
-            if match_status:
-                if os.path.exists(temp_filename):
-                    os.remove(temp_filename)
-                return JsonResponse({'error': f'Face is already registered under {matched_face.username}'}, status=400)
+            # Check if strict duplicate checking is enabled
+            strict_check = getattr(settings, 'FACE_STRICT_DUPLICATE_CHECK', True)
+
+            if strict_check:
+                matched_face, match_status = recognize(img)
+                if match_status:
+                    if os.path.exists(temp_filename):
+                        os.remove(temp_filename)
+                    return JsonResponse(
+                        {'error': f'Face is already registered under {matched_face.username}'},
+                        status=400
+                    )
 
             # Try to associate with an existing user if one exists with the same employee ID
             try:
@@ -263,8 +269,10 @@ def register_new_user(request):
                 face_encoding=pickle.dumps(embeddings),
                 user=user
             )
+
             # Save the image file to the Face model
             face.face_image.save(f"{username}.png", file_obj, save=True)
+
         else:
             if os.path.exists(temp_filename):
                 os.remove(temp_filename)
