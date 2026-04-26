@@ -92293,7 +92293,7 @@ yf(a){return this.ay5(a)},
 ay5(a){var s=0,r=A.C(t.a),q,p=2,o=[],n,m,l,k,j,i,h,g
 var $async$yf=A.y(function(b,c){if(b===1){o.push(c)
 s=p}while(true)switch(s){case 0:p=4
-n=A.aGf("POST",A.fR("http://127.0.0.1:8002/login",0,null))
+n=A.aGf("POST",A.fR("/api/login",0,null))
 n.y.push(A.aGe("file",a,A.Qc("image","png",null),"webcam-frame.png"))
 s=7
 return A.t(J.aEW(n),$async$yf)
@@ -92332,7 +92332,7 @@ yg(a){return this.ay6(a)},
 ay6(a){var s=0,r=A.C(t.a),q,p=2,o=[],n,m,l,k,j,i,h,g
 var $async$yg=A.y(function(b,c){if(b===1){o.push(c)
 s=p}while(true)switch(s){case 0:p=4
-n=A.aGf("POST",A.fR("http://127.0.0.1:8002/logout",0,null))
+n=A.aGf("POST",A.fR("/api/logout",0,null))
 n.y.push(A.aGe("file",a,A.Qc("image","png",null),"webcam-frame.png"))
 s=7
 return A.t(J.aEW(n),$async$yg)
@@ -92373,7 +92373,7 @@ var $async$oL=A.y(function(d,a0){if(d===1){o.push(a0)
 s=p}while(true)switch(s){case 0:p=4
 i=t.N
 h=t.z
-n=A.aGf("POST",A.fR("http://127.0.0.1:8002/register_new_user",0,null).a1Z(0,A.al(["text",b],i,h)))
+n=A.aGf("POST",A.fR("/api/register_new_user",0,null).a1Z(0,A.al(["text",b],i,h)))
 n.y.push(A.aGe("file",c,A.Qc("image","png",null),"webcam-frame.png"))
 s=7
 return A.t(J.aEW(n),$async$oL)
@@ -93039,7 +93039,7 @@ case 2:return A.z(o.at(-1),r)}})
 return A.B($async$t_,r)},
 vS(){var s=0,r=A.C(t.H),q
 var $async$vS=A.y(function(a,b){if(a===1)return A.z(b,r)
-while(true)switch(s){case 0:q=A.fR("http://127.0.0.1:8002/get_attendance_logs",0,null)
+while(true)switch(s){case 0:q=A.fR("/api/get_attendance_logs",0,null)
 s=5
 return A.t(A.aI2(q),$async$vS)
 case 5:s=b?2:4
