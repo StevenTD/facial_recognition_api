@@ -4,8 +4,11 @@ ticket_attachments/
 /media/
 *__pycache__
 .envbak
-/static
+/static/
+/staticfiles/
 /face_recognition/media/
+/face_recognition/static/
+/face_recognition/staticfiles/
 /face_recognition/logs/
 /test_faces
 
